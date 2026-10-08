@@ -77,23 +77,25 @@ im\_guoxy@163.com
 English-only layer selection can overlook degradation in other
 languages when compressing multilingual text-to-speech (TTS) models.
 We propose Cross-Lingual Worst-Group Excess Pruning (CLWE-Prune),
-which scores each candidate LLM block by the largest recognition-error
-excess caused by its removal from the dense model across English,
-Chinese, Japanese, and Korean, and prunes the lowest-scoring blocks.
-Recovery fine-tunes pruned models using generated speech-token
-sequences screened for text accuracy by offline automatic speech
-recognition (ASR). On CosyVoice3, the multilingual \(P_k\)
-configurations yield lower four-language average Whisper error than
+which scores each large language model (LLM) block by the largest
+increase in recognition error caused by its removal across English,
+Chinese, Japanese, and Korean. We prune the lowest-scoring blocks
+and fine-tune the pruned models on student-generated speech-token
+sequences screened for text accuracy using offline automatic speech
+recognition (ASR). On CosyVoice3, CLWE-selected \(P_k\) models achieve
+lower four-language average Whisper error (Macro ER) than
 EN-WER \(P_k\) at all four matched pruning depths. With 400 verified
 sequences and 15 updates, recovery reduces Whisper Macro ER by
-7.61--10.64\% relative to the corresponding Base checkpoints at
+7.61--10.64\% relative to Base at
 \(P_{12}\), \(P_{15}\), and \(P_{16}\), and lowers SenseVoice Macro ER
 at all three depths. With 800 sequences and 40 updates, recovered
 \(P_{15}\) retains nine of 24 LLM blocks and has 26.03\% fewer
-parameters than Dense-24. Its observed Whisper/SenseVoice Macro ER
-is 7.68\%/8.73\%, versus 7.86\%/8.77\% for Dense-24. A separate inference benchmark using a \(P_{15}\) checkpoint shows
-RTF decreasing from 0.633 for Dense-24 to 0.375 and first-packet
-latency decreasing from 2.600 to 1.572 s.
+parameters than Dense-24. Its observed Whisper and SenseVoice Macro ERs
+are 7.68\% and 8.73\%, respectively, compared with
+7.86\% and 8.77\% for Dense-24. In a separate inference benchmark,
+a \(P_{15}\) checkpoint reduces the real-time factor (RTF) from
+0.633 to 0.375 and first-packet latency from 2.600 to 1.572 s
+relative to Dense-24.
 \end{abstract}
 %
 \begin{keywords}
@@ -106,55 +108,60 @@ Multilingual TTS, Model Compression, Structural Pruning, Cross-Lingual Layer Sel
 
 Multilingual text-to-speech (TTS) systems increasingly use a shared
 Transformer backbone to synthesize speech across languages
-\cite{du2024cosyvoice,du2025cosyvoice3}. Advances in neural TTS have
-improved acoustic modeling and waveform generation
-\cite{shen2018naturaltts}; prompt-conditioned systems can synthesize
+\cite{du2024cosyvoice,du2025cosyvoice3}. Neural TTS has improved
+acoustic modeling and waveform generation
+\cite{shen2018naturaltts}. Prompt-conditioned systems can synthesize
 speech for unseen speakers across languages
-\cite{casanova2022yourtts,le2023voicebox}; and speech-token models
+\cite{casanova2022yourtts,le2023voicebox}, while speech-token models
 cast generation as autoregressive sequence prediction
 \cite{wang2023neuralcodec,kharitonov2023speak}. This shared backbone,
 however, makes streaming inference costly: each autoregressive
-decoding step traverses the Transformer blocks in sequence.
-Removing entire blocks can shorten this path. Yet a block that
+decoding step traverses all Transformer blocks sequentially.
+Removing entire blocks can shorten this path. However, a block that
 appears dispensable for English may still be crucial for preserving
-the linguistic content of speech in languages such as Chinese,
+linguistic content in languages such as Chinese,
 Japanese, and Korean. Aggregate error alone can obscure this risk:
 the dense model has different baseline error rates across languages,
 while English is evaluated using word error rate (WER) and the other
 languages using character error rate (CER). We therefore focus on the
 \emph{additional} error caused by pruning within each language,
 particularly the largest such increase across languages. Acoustic
-quality scores may remain stable even when linguistic content errors
-rise.
+quality scores may remain stable even as errors in linguistic content
+increase.
 
 Structural pruning removes dimensions or layers
 \cite{ma2023llmpruner,ashkboos2024slicegpt,men2025shortgpt}. SPADE applies
 WER-guided layer selection and distillation to LLM-based TTS
-\cite{nguyen2026spade}, but its ranking is English-only and so cannot see
-regressions in Chinese, Japanese, or Korean. Averaging error rates across languages can mask a substantial increase in error for an individual
-language, motivating worst-group evaluation for model selection \cite{sagawa2020dro}. Pruning multilingual text models can also
-shift which language is harmed, as shown for text LLMs under mismatched
-calibration \cite{kurz2026limitations}, and ASR-screened self-distillation
+\cite{nguyen2026spade}, but its English-only ranking cannot detect
+degradation in Chinese, Japanese, or Korean. Averaging error rates
+across languages can mask a substantial increase for an individual
+language, motivating worst-group evaluation for model selection
+\cite{sagawa2020dro}. Pruning can also alter which languages are
+adversely affected, as shown for multilingual text LLMs under mismatched
+calibration \cite{kurz2026limitations}. ASR-screened self-distillation
 has been used to reduce synthesis failures in neural-codec TTS
 \cite{asaria2026reliable}. To our knowledge, however, cross-lingual
 worst-group block selection combined with ASR-screened student-trajectory
 recovery has not been studied for pruned multilingual TTS.
 
-Pruning also changes the student's generation behavior. Standard distillation
-trains compact models on teacher information
-\cite{hinton2015distilling,kim2016sequence}, sequences produced by a dense teacher or extracted from recordings differ from those generated by the pruned student. On-policy distillation addresses this by learning
-from the student's own generated sequences
+Pruning also changes the student's generation behavior. Standard
+distillation trains compact models using supervision from a teacher
+\cite{hinton2015distilling,kim2016sequence}. Sequences produced by a
+dense teacher or extracted from recordings differ from those generated
+by the pruned student. On-policy distillation addresses this mismatch
+by learning from the student's own generated sequences
 \cite{agarwal2024onpolicy}, and self-training work shows that generated
-supervision must be screened before use \cite{park2020improved}. The risk
-here is concrete: Using a student-generated sequence as a training target can reinforce pronunciation errors present in
-its decoded speech. For TTS, an offline ASR recognizer can compare the
-decoded speech against the requested text and discard trajectories that
-fail this content check before they are used. This check runs only in
-training; it adds no cost to the deployed synthesizer.
+supervision must be screened before use \cite{park2020improved}.
+Using a student-generated sequence as a training target can reinforce
+pronunciation errors in the decoded speech. For TTS, offline ASR can
+compare the decoded speech with the requested text and discard
+trajectories that fail this content check. Screening is performed
+only during training and adds no cost to the deployed synthesizer.
 
 We propose CLWE-Prune, which ranks layers by the worst-group excess error
-across four language groups and recovers each pruned model using speech-token trajectories generated by the student and screened using ASR, with the acoustic
-decoder held fixed. Our contributions are:
+across four language groups. It then recovers each pruned model using
+ASR-screened, student-generated speech-token trajectories while
+keeping the acoustic decoder fixed. Our contributions are:
 \begin{itemize}
 \item We propose a cross-lingual layer-selection criterion based on the
 largest increase in recognition error relative to the dense model,
@@ -168,9 +175,11 @@ keepaspectratio
 ]{framework.pdf}
 \vspace{-2mm}
 \caption{Overview of CLWE-Prune. (A) Single-layer removal estimates
-cross-lingual worst-group excess risk. (B) We remove the lowest-scoring blocks and continue training the remaining model to obtain the Base checkpoint, while keeping the acoustic decoder fixed.
-(C) The pruned student is recovered on ASR-screened speech-token
-trajectories, keeping the pruning topology fixed.}
+cross-lingual worst-group excess risk. (B) The lowest-scoring blocks
+are removed, and the remaining model undergoes continuation training
+to obtain the Base checkpoint, with the acoustic decoder fixed.
+(C) The pruned student is fine-tuned on ASR-screened speech-token
+trajectories with its pruning topology fixed.}
 \label{fig:framework}
 \vspace{-2mm}
 \end{figure*}
@@ -183,7 +192,7 @@ changing the pruned architecture or acoustic decoder.
 
 \item Our recovered nine-layer model removes $26.03\%$ of the dense
 model's parameters while achieving comparable recognition accuracy and
-a $1.69\times$ streaming real-time-factor speedup.
+a $1.69\times$ speedup in streaming inference, measured by RTF.
 \end{itemize}
 
 
@@ -194,12 +203,12 @@ a $1.69\times$ streaming real-time-factor speedup.
 Figure~\ref{fig:framework} summarizes three stages: single-layer
 risk estimation, physical pruning, and verifier-guided recovery.
 We rank CosyVoice3's 24 autoregressive LLM blocks by their
-cross-lingual worst-excess error and remove the lowest-risk blocks.
-The retained blocks preserve their original order and inherit their
-weights from Dense-24. Under the matched-selection protocol, the
+cross-lingual worst-group excess error and remove the lowest-risk blocks.
+Retained blocks keep their original order and Dense-24 weights.
+Under the matched-selection protocol, the
 pruned LLM undergoes continuation training guided by a frozen
 Dense-24 teacher; the checkpoint with the lowest validation loss
-becomes the Base model. Recovery then fine-tunes this Base model on
+becomes the Base model. Recovery fine-tunes Base on
 ASR-screened, student-generated speech-token trajectories. The
 teacher used to construct Base is distinct from the Dense-Teacher
 recovery control, which supplies recovery targets. The flow-matching
@@ -208,10 +217,9 @@ acoustic model and HiFTNet vocoder remain unchanged throughout.
 \subsection{CLWE-Based Layer Selection}
 \label{sec:clwe_selection}
 
-As shown in Fig.~\ref{fig:framework}(A), we estimate single-block
-removal risk on a multilingual layer-selection dataset. We group
-samples by language, with one group per language. Thus,
-
+As shown in Fig.~\ref{fig:framework}(A), we estimate the risk of
+removing a single block using a multilingual layer-selection dataset.
+We partition the samples into language groups
 $\mathcal{G}=\{g_{\mathrm{EN}},g_{\mathrm{ZH}},
 g_{\mathrm{JA}},g_{\mathrm{KO}}\}$.
 
@@ -245,8 +253,8 @@ R_i^{\mathrm{CLWE}}
 \end{equation}
 \endgroup
 Subtracting $E_0(g)$ accounts for each language's Dense-24 baseline,
-while the maximum makes the largest observed error increase determine
-the block's risk. This subtraction does not make English WER
+while taking the maximum sets the block's risk score to the largest
+observed error increase. This subtraction does not make English WER
 statistically equivalent to the other languages' CER. A lower
 $R_i^{\mathrm{CLWE}}$ indicates a safer block to remove.
 
@@ -254,8 +262,8 @@ We rank blocks in ascending order of risk, breaking ties by their
 original indices. For a pruning budget of $k$, we physically remove
 the first $k$ blocks in this ranking, as shown in
 Fig.~\ref{fig:framework}(B). The ranking is computed once and reused
-across pruning depths, so the removal sets are nested and the
-retained blocks keep their original order. Single-block probes do not
+across pruning depths, yielding nested removal sets that preserve
+the retained blocks' order. Single-block probes do not
 capture interactions among jointly removed blocks; consequently,
 their ranking is a selection heuristic, not a bound on the final
 pruned model's error.
@@ -279,19 +287,17 @@ content check, speaker similarity, UTMOS, and duration ratio guide
 selection; these quality measures do not replace the ASR criterion.
 Candidate generation and screening are performed offline.
 
-Each pruned student Base first generates 400 speech-token
+Each pruned Base model first generates 400 speech-token
 trajectories, from which we select recovery targets using the
-verifier. We fine-tune the student on these targets and report
-its step-15 checkpoint as SFT400/15. This checkpoint then
+verifier. We fine-tune the student on these targets for 15 updates
+to obtain SFT400/15. This checkpoint then
 generates a second set of 400 verifier-screened targets.
 
-For SFT800/40, we reinitialize the student from its original
-pruned Base checkpoint and fine-tune it on both sets of targets.
-We report the resulting step-40 checkpoint. Thus, SFT400/15
-generates the second target set but is not the initialization
-for SFT800/40. In the P12 Base-generated control, both sets
-of targets are generated by the original P12 Base, while the
-final model is trained from that same Base.
+For SFT800/40, we reinitialize the student from its original Base
+checkpoint and fine-tune it on both target sets for 40 updates.
+SFT400/15 supplies the second target set, not the initialization.
+In the \(P_{12}\) Base-generated control, the original Base model
+generates both target sets and initializes the final model.
 
 Let $\mathcal{D}_{\mathrm{rec}}$ contain the accepted trajectories.
 For sequence $j$ in a minibatch $\mathcal B$, set
@@ -320,31 +326,31 @@ provides no training gradients.
 \label{sec:setup}
 
 \noindent\textbf{Data.}
-The calibration set uses 400 utterances per language--corpus group from LibriTTS
+The calibration set contains 400 utterances per language--corpus group from LibriTTS
 (English) \cite{zen2019libritts}, AISHELL-3 (Chinese)
 \cite{shi2021aishell3}, and Emilia (Japanese and Korean)
-\cite{he2025emilia}. The \texttt{strict1200} test set has 300 utterances
-per language. Models share test texts and prompts but generate separate
-waveforms. Recovery uses 100 or 200 targets per language for
-SFT400/15 or SFT800/40.
+\cite{he2025emilia}. The \texttt{strict1200} test set contains 300
+utterances per language. All models use the same test texts and prompts
+but generate separate waveforms. Recovery uses 100 and 200 targets per
+language for SFT400/15 and SFT800/40, respectively.
 
 \noindent\textbf{Models and training configurations.}
 Dense-24 is the unpruned 24-block model. Removing \(k\) LLM blocks
 leaves \(24-k\) blocks. Multilingual configurations selected by CLWE
 at this depth are labeled \(P_k\), and the English-only pruning
 baseline is labeled EN-WER \(P_k\).
-Table~\ref{tab:criterion_comparison} compares both at
+Table~\ref{tab:criterion_comparison} compares these configurations at
 \(k\in\{6,8,10,12\}\). Table~\ref{tab:high_compression} extends the
-multilingual sweep to \(P_{13}\)--\(P_{17}\). Its separate inference
-benchmark reports Dense-24, \(P_{12}\), \(P_{15}\), and \(P_{16}\).
+multilingual sweep to \(P_{13}\)--\(P_{17}\) and reports a separate
+inference benchmark for Dense-24, \(P_{12}\), \(P_{15}\), and \(P_{16}\).
 
 Table~\ref{tab:recovery_results} compares recovery from \(P_{12}\),
-\(P_{15}\), and \(P_{16}\) Base checkpoints, which are separate from
-the Table~\ref{tab:high_compression} sweep. Verifier-SFT
+\(P_{15}\), and \(P_{16}\) Base checkpoints, which are distinct from
+those used in the sweep in Table~\ref{tab:high_compression}. Verifier-SFT
 is evaluated at both 400/15 and 800/40 for all three depths. At
 \(P_{12}\), additional controls include Base-Generated-SFT800/40,
-Selected-Original400/15 using original-recording tokens, and
-Random-Candidate400/15 using unverified student targets with
+Selected-Original400/15 using tokens extracted from original recordings, and
+Random-Candidate400/15 using unverified student-generated targets with
 separately assigned same-language prompts. Dense-Teacher-SFT400/15
 uses verified dense-model targets at all three depths. Dense-24
 Teacher is the unpruned reference.
@@ -355,17 +361,20 @@ Content accuracy is evaluated using Whisper large-v3
 \cite{an2024funaudiollm}. WER is used for English, while CER is used for Chinese,
 Japanese, and Korean. We report macro-averaged error rate (Macro ER),
 computed as the mean of the four language-level error rates.
-For each fixed checkpoint, Table~\ref{tab:recovery_results} reports results averaged over three decoding runs with seeds 1986,1987, and 1988.
-For a model
-evaluated alongside Dense-24, the test worst-group excess is
+For each fixed checkpoint, Table~\ref{tab:recovery_results} reports
+results averaged over three decoding runs with seeds 1986, 1987, and
+1988. For a model evaluated alongside Dense-24, the worst-group excess
+on the test set is
 $\max_g[E_{\rm model}(g)-E_{\rm Dense}(g)]$.
 
-We report UTMOS predicted quality \cite{saeki2022utmos} and
+We report UTMOS quality predictions \cite{saeki2022utmos} and
 mel-cepstral distortion (MCD) in the recovery comparison. The
-high-compression sweep also reports CAM++ speaker embedding cosine
-similarity (SECS) \cite{wang2023campp}. MCD uses 24-kHz WORLD
-24-order mel cepstra (excluding $c_0$) aligned with fastDTW.
-Higher UTMOS/SECS and lower MCD are preferred. UTMOS also ranks candidates; these automatic scores do not establish perceived naturalness.
+high-compression sweep also reports the cosine similarity of CAM++
+speaker embeddings (SECS) \cite{wang2023campp}. MCD is computed from
+24th-order mel cepstra (excluding $c_0$) extracted using WORLD at
+24 kHz and aligned with fastDTW. Higher UTMOS and SECS and lower
+MCD indicate better performance. UTMOS is also used to rank candidates.
+These automatic scores do not establish perceived naturalness.
 A separate architecture benchmark measures
 streaming real-time factor (RTF), first-packet latency, and peak allocated CUDA memory.
 
@@ -373,7 +382,7 @@ streaming real-time factor (RTF), first-packet latency, and peak allocated CUDA 
 \noindent\begin{minipage}{\columnwidth}
 \centering
 \captionof{table}{English-WER versus multilingual CLWE layer
-selection. Bold marks values where \(P_k\) outperforms EN-WER \(P_k\)
+selection. Bold indicates values for which \(P_k\) outperforms EN-WER \(P_k\)
 at the same depth.}
 \label{tab:criterion_comparison}
 \small
@@ -406,7 +415,8 @@ P12 & \textbf{8.09} & \textbf{2.42}/12.38 & \textbf{12.51}/5.04 & 3.48/8.32 \\
 \noindent\begin{minipage}{\columnwidth}
 \centering
 \captionof{table}{High-compression quality sweep and separate architecture
-inference benchmark. L denotes retained blocks. Macro ER is Whisper Macro ER.}
+inference benchmark. The Layers column reports the number of retained blocks.
+Macro ER refers to Whisper Macro ER.}
 \label{tab:high_compression}
 
 \setlength{\tabcolsep}{2.5pt}
@@ -447,7 +457,7 @@ P16      & 620.59 & 0.377 & 1.535 & 2468 \\
 \centering
 \caption{Recovery performance on \texttt{strict1200}.
 W and SV denote Whisper large-v3 and SenseVoiceSmall.
-Bold marks the best value within each pruning depth;
+Bold indicates the best value at each pruning depth;
 Dense-24 Teacher is the unpruned reference.}
 \label{tab:recovery_results}
 \small
@@ -501,74 +511,87 @@ Dense-24 Teacher & 7.86 & 8.77 &
 
 \setlength{\dbltextfloatsep}{8pt plus 2pt minus 2pt}
 
-Table~\ref{tab:criterion_comparison} compares layer rankings at
-matched depths. The multilingual \(P_k\) models lower Whisper Macro ER
-by 0.25, 0.26, 0.69, and 0.88 points at P6, P8, P10, and P12.
-The largest reported language error also falls by 0.25, 0.51, 1.57,
-and 3.74 points, respectively. This descriptive maximum mixes English
-WER with the other languages' CER. P12 Japanese CER (16.25\% to
-12.51\%) shows the non-English regression missed by English-only
-ranking. P10 Chinese CER rises by 0.31 points, so gains are not
-uniform. Mean-Excess and Max-Raw checkpoints were not evaluated, so
-this comparison does not isolate the maximum operation or
-Dense-baseline subtraction. The matched comparison ends at P12.
+At matched pruning depths (Table~\ref{tab:criterion_comparison}),
+the multilingual \(P_k\) models reduce Whisper Macro ER relative
+to EN-WER by 0.25,
+0.26, 0.69, and 0.88 percentage points at \(P_6\), \(P_8\),
+\(P_{10}\), and \(P_{12}\), respectively. The maximum reported error
+across languages also decreases by 0.25, 0.51, 1.57, and 3.74
+percentage points, respectively. This descriptive maximum combines
+English WER with CER for the other languages. At \(P_{12}\), Japanese
+CER falls from 16.25\% to 12.51\%, illustrating the non-English
+degradation overlooked by English-only ranking. At
+\(P_{10}\), however, Chinese CER increases by 0.31 percentage points,
+so the gains are not uniform. Mean-Excess and Max-Raw checkpoints
+were not evaluated, so the effects of taking the maximum and
+subtracting the dense-model baseline are not isolated.
+The matched comparison ends at \(P_{12}\).
 
-Table~\ref{tab:high_compression} reports available multilingual
-\(P_k\) configurations, not a controlled depth-only ablation.
-Whisper Macro ER rises from 8.36\% at P13 to 8.75\% at P15 and
-11.31\% at P16, while UTMOS and SECS barely change. This motivates
-testing recovery at \(P_{15}\) and \(P_{16}\). In the separate
+Table~\ref{tab:high_compression} reports the available multilingual
+\(P_k\) configurations rather than a controlled ablation of pruning
+depth alone. Whisper Macro ER rises from 8.36\% at
+\(P_{13}\) to 8.75\% at \(P_{15}\) and 11.31\% at \(P_{16}\),
+while UTMOS and SECS change little. These results motivate testing
+recovery at \(P_{15}\) and \(P_{16}\). In the separate
 architecture benchmark, RTF falls from 0.633 for Dense-24 to 0.375
-for \(P_{15}\) (1.69$\times$). First-packet latency falls from 2.600
+for \(P_{15}\), a 1.69$\times$ speedup. First-packet latency falls from 2.600
 to 1.572 s. These efficiency checkpoints are distinct from the
 quality and recovery checkpoints. Peak allocated CUDA memory falls
 from 3382 to 2530 MiB. The \(P_{16}\) architecture has a slightly
-lower first-packet latency (1.535 s) but no further RTF gain (0.377).
+lower first-packet latency (1.535 s) but no further reduction in RTF (0.377).
 The measured quality and efficiency trends favor \(P_{15}\) among
 these configurations.
 
-Relative to their respective Base models in
-Table~\ref{tab:recovery_results}, Verifier-SFT400/15 reduces
+Relative to the corresponding Base checkpoints in
+Table~\ref{tab:recovery_results}, recovery with Verifier-SFT400/15 reduces
 Whisper/SenseVoice Macro ER by 0.62/0.83, 0.91/1.14, and 1.05/1.30
-points at P12, P15, and P16, respectively. UTMOS increases and MCD
-decreases at each depth without changing parameter counts. SenseVoice
-does not select targets, so its improvement supports a content gain
-beyond the Whisper screening metric. Among 24 per-language ASR values
-(three depths, four languages, two recognizers), 23 decrease. The sole
-exception is P15 Chinese Whisper CER (12.17\% to 12.27\%). This breadth
-shows that the macro gains are not driven by one language. UTMOS also
-ranks accepted targets.
+percentage points at \(P_{12}\), \(P_{15}\), and \(P_{16}\),
+respectively. UTMOS increases and MCD decreases at each depth, while
+model parameter counts remain unchanged. SenseVoice is not used to
+select targets, so the improvement in its scores supports a gain in
+content accuracy beyond the Whisper screening metric. Of 24
+per-language ASR error rates (three depths, four languages, and two
+recognizers), 23 decrease. The sole exception is Chinese Whisper CER
+at \(P_{15}\) (12.17\% to 12.27\%). The macro-average gains
+therefore span multiple languages.
 
-SFT800/40 further improves both ASR measures at P12 and P16. At P15, the Whisper Macro ER decreases from 8.00\% to 7.68\%, whereas the SenseVoice Macro ER
-increases from 8.59\% to 8.73\%. Relative to their own Base checkpoints, the P15 and P16
-SFT800/40 models reduce Whisper/SenseVoice Macro ER by
-1.23/1.00 and 1.55/1.53 points, respectively.
-At P15, UTMOS increases from 3.4788 to 3.5543 and
-MCD decreases from 8.3662 to 8.2912. These automatic acoustic scores
-move with the recognition gains, although UTMOS is also used to rank
-accepted recovery candidates. The recovered \(P_{15}\) model has
-635.50M total parameters, versus 859.19M for Dense-24, and observed
-Macro ER of 7.68/8.73 versus 7.86/8.77. Its worst-group Whisper
-excess over Dense-24 is still 1.44 points in Korean (4.83 versus
-3.39). English WER is also 0.59 points higher. Thus, the lower macro
-average does not imply uniform language-level preservation.
+SFT800/40 further improves both ASR measures at \(P_{12}\) and
+\(P_{16}\). At \(P_{15}\), Whisper Macro ER decreases from 8.00\%
+to 7.68\%, whereas SenseVoice Macro ER increases from 8.59\% to
+8.73\%. Relative to their corresponding Base checkpoints, the
+\(P_{15}\) and \(P_{16}\) SFT800/40 models reduce Whisper/SenseVoice
+Macro ER by 1.23/1.00 and 1.55/1.53 percentage points, respectively.
+At \(P_{15}\), UTMOS increases from 3.4788 to 3.5543 and MCD
+decreases from 8.3662 to 8.2912 alongside the reduction in Whisper
+Macro ER, although UTMOS is also used to rank accepted recovery
+candidates. The recovered \(P_{15}\) model has 635.50M total
+parameters versus 859.19M for Dense-24, with observed
+Whisper/SenseVoice Macro ERs of 7.68/8.73 versus 7.86/8.77.
+Its worst-group Whisper excess
+over Dense-24 remains 1.44 percentage points in Korean (4.83 versus
+3.39). English WER is also 0.59 percentage points higher. Thus, the
+lower macro-average error does not imply uniform accuracy
+preservation across languages.
 
-At P12, Selected-Original is slightly worse than Base (8.28/9.34
-versus 8.15/9.23), while Random-Candidate reaches 7.62/8.53 and
-verified student recovery reaches 7.53/8.40. Student-generated targets
-give the larger observed gain, consistent with the on-policy rationale
-\cite{agarwal2024onpolicy}. Different prompts prevent assigning the
-smaller verified--random gap solely to ASR screening. With 800 targets,
-mixed Base/auxiliary generation reaches 7.24/8.32 versus 7.62/8.33
-when Base generates all targets, with separate training runs.
-Dense-Teacher at P15 lowers Chinese Whisper CER from 12.17\% to 7.74\%
-but raises Japanese CER from 13.54\% to 18.72\%. At the same 400-target/15-update setting, verified student targets
-yield lower Whisper/SenseVoice Macro ER than Dense-Teacher targets by
-0.15/0.17, 0.82/0.85, and 1.34/1.30 points at P12, P15, and P16. The Japanese
-Whisper CER gap is especially large at P15 (12.39\% versus 18.72\%)
-and P16 (14.02\% versus 21.75\%), whereas the teacher targets improve
-Chinese. Thus the lower macro errors do not merely reflect a single
-favorable language.
+At \(P_{12}\), Selected-Original yields slightly higher Macro ERs
+for Whisper and SenseVoice than Base (8.28/9.34 versus 8.15/9.23).
+Random-Candidate yields 7.62/8.53, and verified student recovery
+yields 7.53/8.40. Student-generated targets provide the larger
+observed gain, consistent with the on-policy rationale
+\cite{agarwal2024onpolicy}. Differences in prompts prevent attributing
+the smaller verified--random gap solely to ASR screening.
+In separate training runs with 800 targets, combining Base and
+SFT400/15 targets yields 7.24/8.32 versus 7.62/8.33 for Base targets alone.
+At \(P_{15}\), Dense-Teacher reduces Chinese Whisper CER from
+12.17\% to 7.74\% but increases Japanese CER from 13.54\% to
+18.72\%. Under the same 400-target/15-update setting, verified student
+targets reduce Whisper/SenseVoice Macro ER by 0.15/0.17, 0.82/0.85,
+and 1.34/1.30 percentage points relative to Dense-Teacher targets at
+\(P_{12}\), \(P_{15}\), and \(P_{16}\), respectively. The gap in
+Japanese Whisper CER is especially large at \(P_{15}\) (12.39\%
+versus 18.72\%) and \(P_{16}\) (14.02\% versus 21.75\%), whereas
+the teacher targets reduce Chinese CER. Thus, the lower macro-average
+errors do not merely reflect improvements in a single language.
 \section{Conclusion}
 \label{sec:conclusion}
 
@@ -579,16 +602,16 @@ decoder held fixed. At all four matched depths, the multilingual
 \(P_k\) configurations have lower Whisper Macro ER than EN-WER
 \(P_k\); at \(P_{12}\), Japanese CER is 12.51\% versus 16.25\% for
 EN-WER \(P_{12}\). With Verifier-SFT400/15, 23 of 24 per-language
-ASR values improve relative to the corresponding Base checkpoints
-across \(P_{12}\), \(P_{15}\), and \(P_{16}\). Recovered \(P_{15}\)
-with SFT800/40 has 26.03\% fewer parameters than Dense-24 and
+ASR error rates decrease relative to the corresponding Base checkpoints
+across \(P_{12}\), \(P_{15}\), and \(P_{16}\). The \(P_{15}\) model
+recovered with SFT800/40 has 26.03\% fewer parameters than Dense-24 and
 slightly lower observed Whisper/SenseVoice Macro ER. Relative to
-the corresponding Base checkpoints, dense-teacher targets reduce
+the corresponding Base checkpoints, Dense-Teacher targets reduce
 Chinese errors but increase Japanese errors at all three depths;
 under the matched 400/15 budget, verified student targets yield
 lower macro errors. Language-level gaps remain, notably in English
-and Korean. Joint selection and recovery, broader language coverage,
-and human evaluation are left for future work.
+and Korean. Future directions include joint selection and recovery,
+broader language coverage, and human evaluation.
 
 \section{Compliance with Ethical Standards}
 This study used existing publicly available speech corpora and
@@ -616,5 +639,3 @@ participants. No additional ethical approval was required.
 \endgroup
 
 \end{document}
-
-
